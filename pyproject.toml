@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "swoosh-cli"
-version = "0.1.1"
+version = "0.1.2"
 description = "All-in-one CLI for Git workflow automation: init, commit, release, deploy, sync"
 readme = "README.md"
 requires-python = ">=3.10"

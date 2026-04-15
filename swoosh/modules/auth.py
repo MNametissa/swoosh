@@ -37,18 +37,47 @@ def check_ssh_github() -> tuple[bool, str]:
 
 
 def check_gh_auth() -> tuple[bool, Optional[str]]:
-    """Check if gh CLI is authenticated."""
-    ok, output = run_cmd(["gh", "auth", "status"])
-    if ok:
-        # Extract username
+    """Check if gh CLI is authenticated or if we have stored credentials."""
+    # Try gh CLI first
+    try:
+        ok, output = run_cmd(["gh", "auth", "status"])
+        if ok:
+            import re
+            match = re.search(r"Logged in to github\.com.*account\s+(\S+)", output, re.IGNORECASE)
+            if match:
+                return True, match.group(1)
+            match = re.search(r"Logged in to github\.com as (\S+)", output, re.IGNORECASE)
+            if match:
+                return True, match.group(1)
+            return True, None
+    except:
+        pass
+
+    # Check git credentials file
+    credentials_file = Path.home() / ".git-credentials"
+    if credentials_file.exists():
+        content = credentials_file.read_text()
         import re
-        match = re.search(r"Logged in to github\.com.*account\s+(\S+)", output, re.IGNORECASE)
+        match = re.search(r"https://([^:]+):([^@]+)@github\.com", content)
         if match:
-            return True, match.group(1)
-        match = re.search(r"Logged in to github\.com as (\S+)", output, re.IGNORECASE)
-        if match:
-            return True, match.group(1)
-        return True, None
+            username = match.group(1)
+            token = match.group(2)
+            # Validate token is still valid
+            try:
+                import urllib.request
+                req = urllib.request.Request(
+                    "https://api.github.com/user",
+                    headers={
+                        "Authorization": f"token {token}",
+                        "Accept": "application/vnd.github.v3+json",
+                        "User-Agent": "swoosh-cli"
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    return True, username
+            except:
+                pass
+
     return False, None
 
 
@@ -112,29 +141,61 @@ def add_ssh_to_github(pub_key_path: Path, token: Optional[str] = None) -> bool:
         return False
 
     key_content = pub_key.read_text().strip()
+    import socket
+    hostname = socket.gethostname()
+    title = f"swoosh-{hostname}"
 
-    # Use gh CLI if authenticated
-    ok, _ = run_cmd(["gh", "auth", "status"])
-    if ok:
-        import socket
-        hostname = socket.gethostname()
-        title = f"swoosh-{hostname}"
-
-        ok, output = run_cmd(["gh", "ssh-key", "add", str(pub_key), "--title", title])
+    # Try gh CLI if available and authenticated
+    if gh_available():
+        ok, _ = run_cmd(["gh", "auth", "status"])
         if ok:
-            return True
-        elif "already exists" in output.lower():
-            console.print("[dim]SSH key already added to GitHub[/]")
-            return True
-        else:
-            console.print(f"[yellow]Could not add key via gh:[/] {output}")
+            ok, output = run_cmd(["gh", "ssh-key", "add", str(pub_key), "--title", title])
+            if ok:
+                console.print("[green]✓[/] SSH key added to GitHub")
+                return True
+            elif "already exists" in output.lower():
+                console.print("[dim]SSH key already added to GitHub[/]")
+                return True
 
-    # Manual instructions
+    # Try using stored token via API
+    credentials_file = Path.home() / ".git-credentials"
+    if credentials_file.exists():
+        import re
+        match = re.search(r"https://([^:]+):([^@]+)@github\.com", credentials_file.read_text())
+        if match:
+            api_token = match.group(2)
+            try:
+                import urllib.request
+                import json
+
+                data = json.dumps({"title": title, "key": key_content}).encode()
+                req = urllib.request.Request(
+                    "https://api.github.com/user/keys",
+                    data=data,
+                    headers={
+                        "Authorization": f"token {api_token}",
+                        "Accept": "application/vnd.github.v3+json",
+                        "Content-Type": "application/json",
+                        "User-Agent": "swoosh-cli"
+                    },
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=10):
+                    console.print("[green]✓[/] SSH key added to GitHub via API")
+                    return True
+            except urllib.error.HTTPError as e:
+                if e.code == 422:  # Already exists
+                    console.print("[dim]SSH key already added to GitHub[/]")
+                    return True
+            except:
+                pass
+
+    # Manual instructions as fallback
     console.print()
     console.print(Panel(
         f"[bold]Add this SSH key to GitHub:[/]\n\n"
         f"1. Go to: https://github.com/settings/ssh/new\n"
-        f"2. Title: swoosh-{os.uname().nodename if hasattr(os, 'uname') else 'key'}\n"
+        f"2. Title: {title}\n"
         f"3. Key:\n[dim]{key_content[:50]}...{key_content[-30:]}[/]",
         title="[cyan]Manual Step Required[/]",
         expand=False
@@ -159,11 +220,11 @@ def add_ssh_to_github(pub_key_path: Path, token: Optional[str] = None) -> bool:
 
 
 def auth_with_token(token: str) -> bool:
-    """Authenticate gh CLI with a personal access token."""
+    """Authenticate with a personal access token."""
     console.print("[dim]Authenticating with token...[/]")
 
+    # Try gh CLI first if available
     try:
-        # gh auth login --with-token reads from stdin
         result = subprocess.run(
             ["gh", "auth", "login", "--with-token"],
             input=token,
@@ -171,23 +232,84 @@ def auth_with_token(token: str) -> bool:
             text=True,
             timeout=30
         )
-
         if result.returncode == 0:
             return True
+    except FileNotFoundError:
+        pass  # gh not installed, use alternative method
+
+    # Validate token directly with GitHub API
+    try:
+        import urllib.request
+        import urllib.error
+        import json
+
+        req = urllib.request.Request(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "swoosh-cli"
+            }
+        )
+
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            username = data.get("login", "unknown")
+            console.print(f"[green]✓[/] Token valid for user: [cyan]{username}[/]")
+
+            # Store token for git operations
+            git_credential_store(token, username)
+            return True
+
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            console.print("[red]Invalid token[/]")
         else:
-            console.print(f"[red]Auth failed:[/] {result.stderr}")
-            return False
+            console.print(f"[red]GitHub API error:[/] {e.code}")
+        return False
     except Exception as e:
         console.print(f"[red]Auth error:[/] {e}")
         return False
 
 
+def git_credential_store(token: str, username: str) -> None:
+    """Store GitHub token for git HTTPS operations."""
+    # Configure git to use the token
+    try:
+        # Set credential helper to store
+        run_cmd(["git", "config", "--global", "credential.helper", "store"])
+
+        # Write credentials file
+        credentials_file = Path.home() / ".git-credentials"
+        cred_line = f"https://{username}:{token}@github.com\n"
+
+        # Read existing, filter out old github entries, add new
+        existing = []
+        if credentials_file.exists():
+            existing = [l for l in credentials_file.read_text().splitlines()
+                       if "github.com" not in l]
+
+        credentials_file.write_text("\n".join(existing + [cred_line.strip()]) + "\n")
+        credentials_file.chmod(0o600)
+
+        console.print("[dim]Token stored for git HTTPS operations[/]")
+    except Exception as e:
+        console.print(f"[yellow]Could not store credentials:[/] {e}")
+
+
 def auth_with_oauth() -> bool:
     """Authenticate using gh's OAuth device flow."""
+    # Check if gh is available
+    try:
+        subprocess.run(["gh", "--version"], capture_output=True, timeout=5)
+    except FileNotFoundError:
+        console.print("[red]OAuth requires GitHub CLI (gh)[/]")
+        console.print("[dim]Install: https://cli.github.com or use --token instead[/]")
+        return False
+
     console.print("[dim]Starting OAuth authentication...[/]")
 
     try:
-        # Interactive OAuth flow
         result = subprocess.run(
             ["gh", "auth", "login", "--web", "-h", "github.com", "-p", "https"],
             timeout=120
@@ -195,6 +317,15 @@ def auth_with_oauth() -> bool:
         return result.returncode == 0
     except Exception as e:
         console.print(f"[red]OAuth error:[/] {e}")
+        return False
+
+
+def gh_available() -> bool:
+    """Check if gh CLI is installed."""
+    try:
+        subprocess.run(["gh", "--version"], capture_output=True, timeout=5)
+        return True
+    except FileNotFoundError:
         return False
 
 
@@ -228,12 +359,17 @@ def status():
         else:
             table.add_row("SSH (GitHub)", "[red]no key[/]", "Run: swoosh auth --ssh")
 
-    # gh CLI
+    # GitHub auth (gh CLI or stored token)
     gh_ok, gh_user = check_gh_auth()
     if gh_ok:
-        table.add_row("GitHub CLI", "[green]authenticated[/]", f"user: {gh_user or 'unknown'}")
+        table.add_row("GitHub API", "[green]authenticated[/]", f"user: {gh_user or 'unknown'}")
     else:
-        table.add_row("GitHub CLI", "[red]not authenticated[/]", "Run: swoosh auth")
+        # Check if gh is even installed
+        try:
+            subprocess.run(["gh", "--version"], capture_output=True, timeout=5)
+            table.add_row("GitHub API", "[red]not authenticated[/]", "Run: swoosh auth")
+        except FileNotFoundError:
+            table.add_row("GitHub API", "[yellow]no token[/]", "Run: swoosh auth --token")
 
     console.print(table)
     console.print()
@@ -304,7 +440,9 @@ def login(
             choices.append("ssh (generate new key)")
 
         choices.append("token (Personal Access Token)")
-        choices.append("oauth (browser login)")
+
+        if gh_available():
+            choices.append("oauth (browser login)")
 
         method = questionary.select(
             "Authentication method:",
@@ -337,15 +475,21 @@ def login(
         else:
             console.print("[yellow]![/] SSH not yet working. Key may need to be added to GitHub.")
 
-        # Still need gh for API operations - use SSH for git
+        # For API operations (releases, PRs), we need a token
         if not gh_ok:
             console.print()
-            console.print("[dim]Setting up GitHub CLI (for releases, PRs, etc.)...[/]")
+            console.print("[dim]For releases and PRs, a token is also recommended.[/]")
             if token:
                 auth_with_token(token)
-            else:
-                # Try OAuth as fallback
+            elif gh_available():
                 auth_with_oauth()
+            else:
+                if questionary.confirm("Set up a token for GitHub API access?", default=True).ask():
+                    api_token = questionary.password(
+                        "Personal Access Token (from https://github.com/settings/tokens):"
+                    ).ask()
+                    if api_token:
+                        auth_with_token(api_token)
 
     elif "token" in method.lower():
         if not token:
@@ -382,8 +526,24 @@ def login(
 
 def logout():
     """Logout from GitHub."""
-    ok, _ = run_cmd(["gh", "auth", "logout", "-h", "github.com"])
-    if ok:
+    logged_out = False
+
+    # Try gh logout
+    if gh_available():
+        ok, _ = run_cmd(["gh", "auth", "logout", "-h", "github.com"])
+        if ok:
+            logged_out = True
+
+    # Remove stored credentials
+    credentials_file = Path.home() / ".git-credentials"
+    if credentials_file.exists():
+        content = credentials_file.read_text()
+        lines = [l for l in content.splitlines() if "github.com" not in l]
+        if len(lines) < len(content.splitlines()):
+            credentials_file.write_text("\n".join(lines) + "\n" if lines else "")
+            logged_out = True
+
+    if logged_out:
         console.print("[green]✓[/] Logged out from GitHub")
     else:
         console.print("[yellow]Not logged in[/]")
