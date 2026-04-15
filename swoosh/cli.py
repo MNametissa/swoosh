@@ -413,22 +413,22 @@ def auth_cmd(
 ):
     """Authenticate with GitHub.
 
-    Methods:
-    - ssh: Use or generate SSH key
-    - token: Use Personal Access Token
-    - oauth: Browser-based login
-    - status: Show auth status
-    - logout: Logout from GitHub
+    Examples:
+        swoosh auth            # Interactive setup
+        swoosh auth --ssh      # Use SSH key
+        swoosh auth --token    # Use Personal Access Token
+        swoosh auth status     # Show current status
+        swoosh auth logout     # Logout
     """
-    if method == "status" or (not method and not token and not ssh):
-        if not token and not ssh and not username and not email:
-            auth.status()
-            return
+    if method == "status":
+        auth.status()
+        return
 
     if method == "logout":
         auth.logout()
         return
 
+    # Default: start interactive login
     auth.login(
         method="ssh" if ssh else method,
         token=token,
