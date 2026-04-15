@@ -9,7 +9,7 @@ from pathlib import Path
 from swoosh import __version__
 from swoosh.modules import (
     init, hooks, config, check, clone,
-    commit, release, deploy, sync, secrets, pr, origins, templates
+    commit, release, deploy, sync, secrets, pr, origins, templates, auth
 )
 
 app = typer.Typer(
@@ -397,6 +397,45 @@ def config_cmd(
         config.update_config(github_user=github_user, default_template=template)
     else:
         config.interactive_config()
+
+
+# ============================================================================
+# AUTH
+# ============================================================================
+
+@app.command("auth")
+def auth_cmd(
+    method: Optional[str] = typer.Argument(None, help="Method: ssh, token, oauth, status, logout"),
+    token: Optional[str] = typer.Option(None, "--token", "-t", help="Personal Access Token"),
+    username: Optional[str] = typer.Option(None, "--name", "-n", help="Git username"),
+    email: Optional[str] = typer.Option(None, "--email", "-e", help="Git email"),
+    ssh: bool = typer.Option(False, "--ssh", "-s", help="Use/generate SSH key"),
+):
+    """Authenticate with GitHub.
+
+    Methods:
+    - ssh: Use or generate SSH key
+    - token: Use Personal Access Token
+    - oauth: Browser-based login
+    - status: Show auth status
+    - logout: Logout from GitHub
+    """
+    if method == "status" or (not method and not token and not ssh):
+        if not token and not ssh and not username and not email:
+            auth.status()
+            return
+
+    if method == "logout":
+        auth.logout()
+        return
+
+    auth.login(
+        method="ssh" if ssh else method,
+        token=token,
+        username=username,
+        email=email,
+        generate_key=ssh,
+    )
 
 
 if __name__ == "__main__":

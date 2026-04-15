@@ -39,6 +39,7 @@ pip install git+https://github.com/MNametissa/swoosh.git
 
 | Command | Description |
 |---------|-------------|
+| `swoosh auth` | Authenticate with GitHub (SSH, token, or OAuth) |
 | `swoosh init` | Initialize project with Git, GitHub repo, CI/CD |
 | `swoosh commit` | Create conventional commit |
 | `swoosh release` | Version bump, changelog, tag, GitHub release |
@@ -54,6 +55,24 @@ pip install git+https://github.com/MNametissa/swoosh.git
 | `swoosh config` | Configure defaults |
 
 ## Usage
+
+### Authenticate with GitHub
+```bash
+# Interactive (recommended)
+swoosh auth
+
+# Check status
+swoosh auth status
+
+# Use SSH key
+swoosh auth --ssh
+
+# Use Personal Access Token
+swoosh auth --token ghp_xxxxxxxxxxxx
+
+# With git config
+swoosh auth --name "Your Name" --email "you@example.com"
+```
 
 ### Initialize a new project
 ```bash

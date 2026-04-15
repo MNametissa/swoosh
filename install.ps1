@@ -264,8 +264,13 @@ if (Get-Command swoosh -ErrorAction SilentlyContinue) {
 
 Write-Host ""
 Write-Info "Next steps:"
-Write-Host "  1. Restart terminal (or run: refreshenv)"
-Write-Host "  2. Run: gh auth login"
-Write-Host "  3. Run: swoosh doctor"
-Write-Host "  4. Run: swoosh init myproject"
+Write-Host "  1. Run: swoosh auth"
+Write-Host "  2. Run: swoosh doctor"
+Write-Host "  3. Run: swoosh init myproject"
 Write-Host ""
+
+# Offer to run auth now
+$response = Read-Host "Run 'swoosh auth' now? [Y/n]"
+if ($response -ne 'n' -and $response -ne 'N') {
+    & swoosh auth
+}

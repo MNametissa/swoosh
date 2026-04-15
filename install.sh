@@ -300,7 +300,14 @@ fi
 
 echo ""
 info "Next steps:"
-echo "  1. Run: gh auth login"
+echo "  1. Run: swoosh auth"
 echo "  2. Run: swoosh doctor"
 echo "  3. Run: swoosh init myproject"
 echo ""
+
+# Offer to run auth now
+read -p "Run 'swoosh auth' now? [Y/n] " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+    swoosh auth
+fi
