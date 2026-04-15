@@ -4,39 +4,36 @@ All-in-one CLI for Git workflow automation.
 
 ## Install
 
-### pipx (recommended)
-```bash
-pipx install swoosh-cli
-```
+One command installs everything (Python, Git, GitHub CLI, SSH, rsync, swoosh):
 
-### pip
-```bash
-pip install swoosh-cli
-```
-
-### Script (Unix/macOS)
+**Linux/macOS:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/MNametissa/swoosh/main/install.sh | bash
 ```
 
-### Script (Windows PowerShell)
+**Windows (PowerShell):**
 ```powershell
 iwr -useb https://raw.githubusercontent.com/MNametissa/swoosh/main/install.ps1 | iex
 ```
 
-### From source
+The installer auto-detects your OS and package manager:
+- **Linux**: apt, dnf, yum, pacman, apk
+- **macOS**: Homebrew (installs if missing)
+- **Windows**: winget, scoop, chocolatey
+
+### Manual install
+
+If you already have Python 3.10+ and dependencies:
 ```bash
-git clone https://github.com/MNametissa/swoosh.git
-cd swoosh
-pip install -e .
+pipx install swoosh-cli
+# or
+pip install swoosh-cli
 ```
 
-## Requirements
-
-- Python 3.10+
-- git
-- [gh](https://cli.github.com/) (GitHub CLI)
-- ssh, rsync (for deploy)
+### From source
+```bash
+pip install git+https://github.com/MNametissa/swoosh.git
+```
 
 ## Commands
 
