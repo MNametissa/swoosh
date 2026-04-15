@@ -96,10 +96,11 @@ def load_swoosh_config(path: Optional[Path] = None) -> dict:
 
 
 def get_version_from_file(path: Path) -> Optional[str]:
-    """Extract version from package.json, Cargo.toml, or pyproject.toml."""
+    """Extract version from various project files."""
     import toml
+    import re
 
-    # package.json
+    # package.json (Node.js)
     pkg_json = path / "package.json"
     if pkg_json.exists():
         try:
@@ -109,7 +110,7 @@ def get_version_from_file(path: Path) -> Optional[str]:
         except:
             pass
 
-    # Cargo.toml
+    # Cargo.toml (Rust)
     cargo = path / "Cargo.toml"
     if cargo.exists():
         try:
@@ -118,7 +119,7 @@ def get_version_from_file(path: Path) -> Optional[str]:
         except:
             pass
 
-    # pyproject.toml
+    # pyproject.toml (Python)
     pyproject = path / "pyproject.toml"
     if pyproject.exists():
         try:
@@ -127,14 +128,83 @@ def get_version_from_file(path: Path) -> Optional[str]:
         except:
             pass
 
+    # setup.py (Python legacy)
+    setup_py = path / "setup.py"
+    if setup_py.exists():
+        try:
+            content = setup_py.read_text()
+            match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
+            if match:
+                return match.group(1)
+        except:
+            pass
+
+    # composer.json (PHP)
+    composer = path / "composer.json"
+    if composer.exists():
+        try:
+            with open(composer) as f:
+                data = json.load(f)
+                return data.get("version")
+        except:
+            pass
+
+    # pom.xml (Java/Maven)
+    pom = path / "pom.xml"
+    if pom.exists():
+        try:
+            content = pom.read_text()
+            # Look for <version> in <project> (not in dependencies)
+            match = re.search(r'<project[^>]*>.*?<version>([^<]+)</version>', content, re.DOTALL)
+            if match:
+                return match.group(1)
+        except:
+            pass
+
+    # build.gradle / build.gradle.kts (Gradle)
+    for gradle_file in ["build.gradle", "build.gradle.kts"]:
+        gradle = path / gradle_file
+        if gradle.exists():
+            try:
+                content = gradle.read_text()
+                match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', content)
+                if match:
+                    return match.group(1)
+            except:
+                pass
+
+    # VERSION or version.txt (generic)
+    for version_file in ["VERSION", "version.txt", "VERSION.txt"]:
+        vf = path / version_file
+        if vf.exists():
+            try:
+                return vf.read_text().strip()
+            except:
+                pass
+
+    # go.mod (Go) - extract module version from git tags is complex, skip
+    # pubspec.yaml (Dart/Flutter)
+    pubspec = path / "pubspec.yaml"
+    if pubspec.exists():
+        try:
+            import yaml
+            with open(pubspec) as f:
+                data = yaml.safe_load(f)
+                return data.get("version")
+        except:
+            pass
+
     return None
 
 
 def set_version_in_file(path: Path, version: str) -> bool:
-    """Update version in package.json, Cargo.toml, or pyproject.toml."""
+    """Update version in various project files."""
     import toml
+    import re
 
-    # package.json
+    updated = False
+
+    # package.json (Node.js)
     pkg_json = path / "package.json"
     if pkg_json.exists():
         try:
@@ -144,16 +214,15 @@ def set_version_in_file(path: Path, version: str) -> bool:
             with open(pkg_json, "w") as f:
                 json.dump(data, f, indent=2)
                 f.write("\n")
-            return True
+            updated = True
         except:
             pass
 
-    # Cargo.toml
+    # Cargo.toml (Rust)
     cargo = path / "Cargo.toml"
     if cargo.exists():
         try:
             content = cargo.read_text()
-            import re
             new_content = re.sub(
                 r'^version\s*=\s*"[^"]*"',
                 f'version = "{version}"',
@@ -161,16 +230,15 @@ def set_version_in_file(path: Path, version: str) -> bool:
                 flags=re.MULTILINE
             )
             cargo.write_text(new_content)
-            return True
+            updated = True
         except:
             pass
 
-    # pyproject.toml
+    # pyproject.toml (Python)
     pyproject = path / "pyproject.toml"
     if pyproject.exists():
         try:
             content = pyproject.read_text()
-            import re
             new_content = re.sub(
                 r'^version\s*=\s*"[^"]*"',
                 f'version = "{version}"',
@@ -178,8 +246,97 @@ def set_version_in_file(path: Path, version: str) -> bool:
                 flags=re.MULTILINE
             )
             pyproject.write_text(new_content)
-            return True
+            updated = True
         except:
             pass
 
-    return False
+    # setup.py (Python legacy)
+    setup_py = path / "setup.py"
+    if setup_py.exists():
+        try:
+            content = setup_py.read_text()
+            new_content = re.sub(
+                r'version\s*=\s*["\'][^"\']+["\']',
+                f'version="{version}"',
+                content
+            )
+            setup_py.write_text(new_content)
+            updated = True
+        except:
+            pass
+
+    # composer.json (PHP)
+    composer = path / "composer.json"
+    if composer.exists():
+        try:
+            with open(composer) as f:
+                data = json.load(f)
+            data["version"] = version
+            with open(composer, "w") as f:
+                json.dump(data, f, indent=4)
+                f.write("\n")
+            updated = True
+        except:
+            pass
+
+    # pom.xml (Java/Maven) - update first <version> under <project>
+    pom = path / "pom.xml"
+    if pom.exists():
+        try:
+            content = pom.read_text()
+            # Replace first version tag (project version, not dependency)
+            new_content = re.sub(
+                r'(<project[^>]*>.*?<version>)[^<]+(</version>)',
+                rf'\g<1>{version}\g<2>',
+                content,
+                count=1,
+                flags=re.DOTALL
+            )
+            pom.write_text(new_content)
+            updated = True
+        except:
+            pass
+
+    # build.gradle / build.gradle.kts (Gradle)
+    for gradle_file in ["build.gradle", "build.gradle.kts"]:
+        gradle = path / gradle_file
+        if gradle.exists():
+            try:
+                content = gradle.read_text()
+                new_content = re.sub(
+                    r'version\s*=\s*["\'][^"\']+["\']',
+                    f'version = "{version}"',
+                    content
+                )
+                gradle.write_text(new_content)
+                updated = True
+            except:
+                pass
+
+    # VERSION or version.txt (generic)
+    for version_file in ["VERSION", "version.txt", "VERSION.txt"]:
+        vf = path / version_file
+        if vf.exists():
+            try:
+                vf.write_text(version + "\n")
+                updated = True
+            except:
+                pass
+
+    # pubspec.yaml (Dart/Flutter)
+    pubspec = path / "pubspec.yaml"
+    if pubspec.exists():
+        try:
+            content = pubspec.read_text()
+            new_content = re.sub(
+                r'^version:\s*.+$',
+                f'version: {version}',
+                content,
+                flags=re.MULTILINE
+            )
+            pubspec.write_text(new_content)
+            updated = True
+        except:
+            pass
+
+    return updated

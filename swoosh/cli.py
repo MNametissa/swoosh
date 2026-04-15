@@ -101,16 +101,24 @@ def commit_cmd(
 
 @app.command("release")
 def release_cmd(
-    bump: Optional[str] = typer.Argument(None, help="Bump type: major, minor, patch"),
+    bump: Optional[str] = typer.Argument(None, help="Bump type: major, minor, patch, alpha, beta, rc"),
     version: Optional[str] = typer.Option(None, "--version", "-v", help="Specific version"),
+    prerelease: Optional[str] = typer.Option(None, "--pre", "-p", help="Pre-release type: alpha, beta, rc"),
+    auto: bool = typer.Option(False, "--auto", "-a", help="Auto-detect bump type from commits"),
     no_changelog: bool = typer.Option(False, "--no-changelog", help="Skip changelog generation"),
     no_github: bool = typer.Option(False, "--no-github", help="Skip GitHub release"),
     no_push: bool = typer.Option(False, "--no-push", help="Skip push"),
 ):
-    """Create a new release with version bump, changelog, and tag."""
+    """Create a new release with version bump, changelog, and tag.
+
+    Supports pre-releases: alpha, beta, rc
+    Auto-detects breaking changes for major bumps.
+    """
     release.create_release(
         bump_type=bump,
         version=version,
+        prerelease=prerelease,
+        auto=auto,
         skip_changelog=no_changelog,
         skip_github=no_github,
         push=not no_push,
@@ -125,13 +133,32 @@ def release_cmd(
 def deploy_cmd(
     target: Optional[str] = typer.Argument(None, help="Deploy target from swoosh.yaml"),
     dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show what would be done"),
+    skip_health: bool = typer.Option(False, "--skip-health", help="Skip health check"),
     list_: bool = typer.Option(False, "--list", "-l", help="List available targets"),
+    releases: bool = typer.Option(False, "--releases", "-r", help="List releases for target"),
+    rollback: bool = typer.Option(False, "--rollback", help="Rollback to previous release"),
 ):
-    """Deploy to SSH/VPS server."""
+    """Deploy to SSH/VPS server with rollback support.
+
+    Features:
+    - Release management (keeps N previous releases)
+    - Health checks (HTTP, TCP, process, command)
+    - Automatic rollback on failed health check
+    """
     if list_:
         deploy.list_targets()
+    elif releases:
+        if not target:
+            console.print("[red]Error:[/] Target required for --releases")
+            raise typer.Exit(1)
+        deploy.releases_list(target)
+    elif rollback:
+        if not target:
+            console.print("[red]Error:[/] Target required for --rollback")
+            raise typer.Exit(1)
+        deploy.rollback(target)
     else:
-        deploy.deploy(target=target, dry_run=dry_run)
+        deploy.deploy(target=target, dry_run=dry_run, skip_health_check=skip_health)
 
 
 # ============================================================================
@@ -210,15 +237,28 @@ def pr_cmd(
 
 @app.command("origin")
 def origin_cmd(
-    action: str = typer.Argument("list", help="Action: list, add, remove, push"),
-    name: Optional[str] = typer.Argument(None, help="Remote name"),
+    action: str = typer.Argument("list", help="Action: list, add, remove, push, status, mirror"),
+    name: Optional[str] = typer.Argument(None, help="Remote name or repo name"),
     url: Optional[str] = typer.Option(None, "--url", "-u", help="Remote URL"),
+    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="Provider: github, gitlab, bitbucket, gitea"),
+    owner: Optional[str] = typer.Option(None, "--owner", "-o", help="Owner/organization/group"),
+    host: Optional[str] = typer.Option(None, "--host", help="Host for self-hosted (GitLab, Gitea)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show more details"),
 ):
-    """Manage multiple git remotes."""
+    """Manage multiple git remotes.
+
+    Actions:
+    - list: Show all configured remotes
+    - add: Add a new remote
+    - remove: Remove a remote
+    - push: Push to all remotes
+    - status: Check sync status of all remotes
+    - mirror: Set up a mirror to another provider
+    """
     if action == "list":
-        origins.list_origins()
+        origins.list_origins(verbose=verbose)
     elif action == "add":
-        origins.add_origin(name=name, url=url)
+        origins.add_origin(name=name, url=url, provider=provider, owner=owner, host=host)
     elif action == "remove":
         if not name:
             console.print("[red]Error:[/] Remote name required")
@@ -226,9 +266,22 @@ def origin_cmd(
         origins.remove_origin(name)
     elif action == "push":
         origins.push_all()
+    elif action == "status":
+        origins.status_all()
+    elif action == "mirror":
+        if not provider:
+            console.print("[red]Error:[/] --provider required for mirror")
+            console.print("Example: swoosh origin mirror --provider gitlab")
+            raise typer.Exit(1)
+        origins.setup_mirror(
+            source_remote=name or "origin",
+            target_provider=provider,
+            target_owner=owner,
+            target_host=host,
+        )
     else:
         console.print(f"[red]Unknown action:[/] {action}")
-        console.print("Use: list, add, remove, push")
+        console.print("Use: list, add, remove, push, status, mirror")
 
 
 # ============================================================================
