@@ -230,15 +230,9 @@ Write-Success "  pipx: OK"
 Write-Host ""
 Write-Info "Installing Swoosh..."
 
-# Try PyPI first, fallback to GitHub
-try {
-    & pipx install swoosh-cli 2>$null
-    Write-Success "  swoosh: installed from PyPI"
-} catch {
-    Write-Info "  Installing from GitHub..."
-    & pipx install "git+https://github.com/MNametissa/swoosh.git"
-    Write-Success "  swoosh: installed from GitHub"
-}
+# Install from PyPI
+& pipx install swoosh-cli
+Write-Success "  swoosh: installed from PyPI"
 
 # Ensure pipx bin is in PATH for this session
 $pipxBin = "$env:USERPROFILE\.local\bin"

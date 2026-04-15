@@ -269,14 +269,9 @@ success "  pipx: OK"
 echo ""
 info "Installing Swoosh..."
 
-# Try PyPI first, fallback to GitHub
-if pipx install swoosh-cli 2>/dev/null; then
-    success "  swoosh: installed from PyPI"
-else
-    info "  Installing from GitHub..."
-    pipx install git+https://github.com/MNametissa/swoosh.git
-    success "  swoosh: installed from GitHub"
-fi
+# Install from PyPI
+pipx install swoosh-cli
+success "  swoosh: installed from PyPI"
 
 # Ensure PATH
 export PATH="$HOME/.local/bin:$PATH"
