@@ -52,6 +52,7 @@ def main(
 def init_project(
     name: Optional[str] = typer.Argument(None, help="Project name"),
     here: bool = typer.Option(False, "--here", "-h", help="Initialize in current directory"),
+    org: Optional[str] = typer.Option(None, "--org", "-o", help="Create in organization"),
     template: str = typer.Option("generic", "--template", "-t", help="CI template: node, python, rust, go, generic"),
     private: bool = typer.Option(False, "--private", "-p", help="Create private repository"),
     no_ci: bool = typer.Option(False, "--no-ci", help="Skip CI/CD setup"),
@@ -62,6 +63,7 @@ def init_project(
     init.run(
         name=name,
         here=here,
+        org=org,
         template=template,
         private=private,
         setup_ci=not no_ci,
@@ -362,7 +364,7 @@ def clone_all_cmd(
 
 
 # ============================================================================
-# REPOS
+# REPOS & ORGS
 # ============================================================================
 
 @app.command("repos")
@@ -372,6 +374,29 @@ def repos_cmd(
 ):
     """List your GitHub repositories."""
     clone.list_repos(owner=owner, limit=limit)
+
+
+@app.command("orgs")
+def orgs_cmd():
+    """List organizations you have access to."""
+    from swoosh.modules.init import get_orgs
+    from rich.table import Table
+
+    orgs = get_orgs()
+    if not orgs:
+        console.print("[yellow]No organizations found or not authenticated.[/]")
+        return
+
+    table = Table(title="Organizations", show_header=True)
+    table.add_column("#", style="dim", width=3)
+    table.add_column("Name", style="cyan")
+
+    for i, org in enumerate(orgs, 1):
+        table.add_row(str(i), org)
+
+    console.print(table)
+    console.print()
+    console.print("[dim]Use with:[/] swoosh init --org <name>")
 
 
 # ============================================================================

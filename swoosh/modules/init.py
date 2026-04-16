@@ -18,6 +18,14 @@ from swoosh.modules.utils import run_cmd
 console = Console()
 
 
+def get_orgs() -> list[str]:
+    """Get list of organizations user has access to."""
+    ok, output = run_cmd(["gh", "api", "user/orgs", "--jq", ".[].login"])
+    if ok and output.strip():
+        return [org.strip() for org in output.strip().split("\n") if org.strip()]
+    return []
+
+
 def run(
     name: Optional[str],
     here: bool,
@@ -26,6 +34,7 @@ def run(
     setup_ci: bool,
     setup_autopush: bool,
     multi_origin: bool = False,
+    org: Optional[str] = None,
 ):
     """Initialize a new project."""
     console.print()
@@ -69,6 +78,19 @@ def run(
 
     # Interactive options if not specified via CLI
     if not here and not name:
+        # Ask for org
+        if not org:
+            orgs = get_orgs()
+            if orgs:
+                org_choices = ["(personal account)"] + orgs
+                org_choice = questionary.select(
+                    "Create in:",
+                    choices=org_choices,
+                    default="(personal account)"
+                ).ask()
+                if org_choice and org_choice != "(personal account)":
+                    org = org_choice
+
         template = questionary.select(
             "CI template:",
             choices=["generic", "node", "python", "rust", "go"],
@@ -80,9 +102,13 @@ def run(
             default=config.get("default_private", False)
         ).ask()
 
+    # Build repo path (org/name or just name)
+    repo_full_name = f"{org}/{project_name}" if org else project_name
+
     console.print()
     console.print(Panel(
         f"[bold]Project:[/] {project_name}\n"
+        f"[bold]Owner:[/] {org or '(personal)'}\n"
         f"[bold]Directory:[/] {project_dir}\n"
         f"[bold]Template:[/] {template}\n"
         f"[bold]Visibility:[/] {'private' if private else 'public'}",
@@ -151,19 +177,19 @@ def run(
             progress.update(task, description=f"[green]✓[/] Remote exists: {output}")
         else:
             ok, output = run_cmd(
-                ["gh", "repo", "create", project_name, visibility, "--source", str(project_dir), "--push"],
+                ["gh", "repo", "create", repo_full_name, visibility, "--source", str(project_dir), "--push"],
                 cwd=project_dir
             )
             if ok:
-                progress.update(task, description="[green]✓[/] GitHub repository created")
+                progress.update(task, description=f"[green]✓[/] GitHub repository created: {repo_full_name}")
             else:
                 # Try without --push
                 ok2, output2 = run_cmd(
-                    ["gh", "repo", "create", project_name, visibility, "--source", str(project_dir)],
+                    ["gh", "repo", "create", repo_full_name, visibility, "--source", str(project_dir)],
                     cwd=project_dir
                 )
                 if ok2:
-                    progress.update(task, description="[green]✓[/] GitHub repository created")
+                    progress.update(task, description=f"[green]✓[/] GitHub repository created: {repo_full_name}")
                 else:
                     progress.update(task, description=f"[yellow]![/] GitHub repo issue: {output2[:80]}")
         progress.remove_task(task)
