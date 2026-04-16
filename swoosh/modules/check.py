@@ -188,16 +188,50 @@ def ensure_dependencies() -> bool:
     """Quick check that all dependencies are available. Returns True if OK."""
     git_ok, _ = check_command("git")
     gh_ok, _ = check_command("gh")
-    auth_ok, _ = check_gh_auth()
 
     if not git_ok:
         console.print("[red]Error:[/] git is not installed.")
         return False
     if not gh_ok:
         console.print("[red]Error:[/] gh CLI is not installed.")
-        return False
-    if not auth_ok:
-        console.print("[red]Error:[/] gh CLI is not authenticated. Run: gh auth login")
+        console.print("[dim]Install: https://cli.github.com/[/]")
         return False
 
-    return True
+    # Check gh auth OR alternative auth methods
+    auth_ok, _ = check_gh_auth()
+    if auth_ok:
+        return True
+
+    # Check SSH as alternative
+    ssh_ok, _ = check_ssh()
+    if ssh_ok:
+        # SSH works but gh isn't authenticated - try to auth gh with token from git-credentials
+        from pathlib import Path
+        credentials_file = Path.home() / ".git-credentials"
+        if credentials_file.exists():
+            import re
+            match = re.search(r"https://([^:]+):([^@]+)@github\.com", credentials_file.read_text())
+            if match:
+                token = match.group(2)
+                # Try to authenticate gh with stored token
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ["gh", "auth", "login", "--with-token"],
+                        input=token,
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    if result.returncode == 0:
+                        return True
+                except:
+                    pass
+        # SSH works, user can do git operations but gh commands may fail
+        console.print("[yellow]Warning:[/] gh CLI not authenticated. Some features may not work.")
+        console.print("[dim]Run: gh auth login[/]")
+        return True  # Allow to proceed with SSH
+
+    console.print("[red]Error:[/] Not authenticated with GitHub.")
+    console.print("[dim]Run: swoosh auth[/]")
+    return False
